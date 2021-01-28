@@ -31,7 +31,7 @@ def deriveText(string):
 
 def map_layers(layers):
     for layer in layers:
-        if not layer['name'].startswith('~'):
+        if not layer['name'].startswith(('~', '-', '-~')):
             continue
         yield dict(depth=0, uid=layer['name'], **layer)
 
@@ -64,15 +64,16 @@ def iter_labels(layers, scaler):
         if o.get('type') or o.get('hidden'):
             continue
         yield dict(
+            bounds=repr(scaler.latlng_bounds(o['bounds'])),
+            boxFillColour=deriveColour(o['boxFillColour']),
             centrePoint=repr(scaler.latlng(o['centrePoint'])),
-            back=deriveColour(o['boxFillColour']),
-            fore=deriveColour(o['characterColour']),
+            characterColour=deriveColour(o['characterColour']),
             fontSize=repr(scaler.distance(o['fontSize'])),
             contents=deriveText(o['contents']),
             ident=deriveIdent(o['path']),
             qcontents=deriveQcon(o['path']),
-            typeface='Ubuntu',  # o['typeface'],
-            # TODO: matrix, opacity, area, bounds
+            typeface=o['typeface'],
+            # TODO: matrix, opacity, area
         )
 
 
@@ -112,6 +113,15 @@ class Scaler:
         x, y = coord
         return [self._to(y - self.origin_y), self._to(x - self.origin_x)]
 
+    def latlng_bounds(self, coord):
+        x1, y1, x2, y2 = coord
+        return [
+            self._to(y1 - self.origin_y),
+            self._to(x1 - self.origin_x),
+            self._to(y2 - self.origin_y),
+            self._to(x2 - self.origin_x),
+        ]
+
 
 def to_transform(data):
     scaler = Scaler.from_artboard(data['artboard'])
@@ -139,6 +149,8 @@ def to_transform(data):
             ('{iri}', 'vm:description', '{name}'),
             ('{iri}', 'vm:atGeoPoint', '{row[centrePoint]}'),
             ('{iri}', 'vm:fontColor', '{row[characterColour]}'),
+            ('{iri}', 'vm:boxBounds', '{row[bounds]}'),
+            ('{iri}', 'vm:boxColor', '{row[boxFillColour]}'),
             ('{iri}', 'vm:forThing', '{for}'),
         ],
     }
