@@ -29,11 +29,11 @@ def deriveText(string):
     return '\n'.join(line.strip() for line in string.split('\r'))
 
 
-def map_layers(layers):
+def map_layers(layers, omit):
     for layer in layers:
-        if not layer['name'].startswith(('~', '-', '-~')):
-            continue
-        yield dict(depth=0, uid=layer['name'], **layer)
+        name = layer['name']
+        if name.startswith(('~', '-', '-~')) and name not in omit:
+            yield dict(depth=0, uid=layer['name'], **layer)
 
 
 def map_labels(labels, parent):
@@ -123,9 +123,10 @@ class Scaler:
         ]
 
 
-def to_transform(data):
+def to_transform(data, omit):
     scaler = Scaler.from_artboard(data['artboard'])
-    rows = list(iter_labels(map_layers(data['layers']), scaler))
+    layers = map_layers(data['layers'], omit)
+    rows = list(iter_labels(layers, scaler))
     # TODO: merge labels across views
     return {
         'data': rows,
@@ -159,13 +160,14 @@ def to_transform(data):
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--encoding', default='utf-8')
+    parser.add_argument('--omit-layer', action='append')
     parser.add_argument('input')
     args = parser.parse_args(argv[1:])
 
     with open(args.input, encoding=args.encoding) as f:
         data = json.load(f)
 
-    pprint.pprint(to_transform(data))
+    pprint.pprint(to_transform(data, args.omit_layer or ()))
     return 0
 
 
