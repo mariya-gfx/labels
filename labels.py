@@ -8,7 +8,7 @@ import pprint
 import sys
 
 
-def deriveColour(col):
+def deriveColor(col):
     """Create CSS color from i9r json."""
     # TODO: Handle non-rgb?
     return 'rgb({red},{green},{blue})'.format(**col)
@@ -16,6 +16,12 @@ def deriveColour(col):
 
 def deriveIdent(path):
     return '-'.join(path.split('/')[1:]).strip()
+
+
+def deriveNote(contents):
+    # TODO: Parse a bit more like TOML rules, and fail sensibly
+    entries = (line.partition('=') for line in contents.strip().splitlines())
+    return {k.strip(): v.strip().strip('"') for k, _, v in entries}
 
 
 def deriveQcon(path):
@@ -64,10 +70,12 @@ def iter_labels(layers, scaler):
             file=sys.stderr)
         if o.get('type') or o.get('hidden'):
             continue
+        note = deriveNote(o.get('note', ''))
         yield dict(
             bounds=repr(scaler.latlng_bounds(o['bounds'])),
             centrePoint=repr(scaler.latlng(o['centrePoint'])),
-            characterColour=deriveColour(o['characterColour']),
+            boxColor=note.get('background', 'rgb(256,256,256)'),
+            characterColor=deriveColor(o['characterColor']),
             fontSize=repr(scaler.distance(o['fontSize'])),
             contents=deriveText(o['contents']),
             ident=deriveIdent(o['path']),
@@ -158,10 +166,9 @@ def to_transform(data, omit):
             ('{iri}', 'vm:fontFamily', '{row[typeface]}'),
             ('{iri}', 'vm:description', '{name}'),
             ('{iri}', 'vm:atGeoPoint', '{row[centrePoint]}'),
-            ('{iri}', 'vm:fontColor', '{row[characterColour]}'),
+            ('{iri}', 'vm:fontColor', '{row[characterColor]}'),
             ('{iri}', 'vm:boxBounds', '{row[bounds]}'),
-            # TODO: Need to derive from note as style not accessible
-            ('{iri}', 'vm:boxColor', 'rgb(255,255,255)'),
+            ('{iri}', 'vm:boxColor', '{row[boxColor]}'),
             ('{iri}', 'vm:forThing', '{for}'),
             ('{iri}', 'vm:forView', '{view}'),
         ],
