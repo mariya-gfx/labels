@@ -10,8 +10,11 @@ import sys
 
 def deriveColor(col):
     """Create CSS color from i9r json."""
-    # TODO: Handle non-rgb?
-    return 'rgb({red},{green},{blue})'.format(**col)
+    width = 2
+    if all(map((lambda n: n >> 4 == n & 15), col.values())):
+        col = {k: v & 15 for k, v in col.items()}
+        width = 1
+    return '#{red:0{w}x}{green:0{w}x}{blue:0{w}x}'.format(**col, w=width)
 
 
 def deriveIdent(path):
@@ -74,8 +77,8 @@ def iter_labels(layers, scaler):
         yield dict(
             bounds=repr(scaler.latlng_bounds(o['bounds'])),
             centrePoint=repr(scaler.latlng(o['centrePoint'])),
-            boxColor=note.get('background', 'rgb(256,256,256)'),
-            characterColor=deriveColor(o['characterColor']),
+            boxColor=note.get('background', '#fff'),
+            characterColor=deriveColor(o['characterColour']),
             fontSize=repr(scaler.distance(o['fontSize'])),
             contents=deriveText(o['contents']),
             ident=deriveIdent(o['path']),
