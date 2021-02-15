@@ -8,7 +8,7 @@ import pprint
 import sys
 
 
-def deriveColour(col):
+def deriveColor(col):
     """Create CSS color from i9r json."""
     # TODO: Handle non-rgb?
     return 'rgb({red},{green},{blue})'.format(**col)
@@ -16,6 +16,12 @@ def deriveColour(col):
 
 def deriveIdent(path):
     return '-'.join(path.split('/')[1:]).strip()
+
+
+def deriveNote(contents):
+    # TODO: Parse a bit more like TOML rules, and fail sensibly
+    entries = (line.partition('=') for line in contents.strip().splitlines())
+    return {k.strip(): v.strip().strip('"') for k, _, v in entries}
 
 
 def deriveQcon(path):
@@ -33,7 +39,7 @@ def map_layers(layers, omit):
     for layer in layers:
         name = layer['name']
         if name.startswith(('~', '-', '-~')) and name not in omit:
-            yield dict(depth=0, uid=layer['name'], **layer)
+            yield dict(depth=0, uid=name, layer=name, **layer)
 
 
 def map_labels(labels, parent):
@@ -43,6 +49,7 @@ def map_labels(labels, parent):
         yield dict(
             depth=parent['depth'] + 1,
             children=label.get('children', ()),
+            layer=parent['layer'],
             parent=parent,
             path=label['path'],
             uid=label['uID'],
@@ -63,14 +70,16 @@ def iter_labels(layers, scaler):
             file=sys.stderr)
         if o.get('type') or o.get('hidden'):
             continue
+        note = deriveNote(o.get('note', ''))
         yield dict(
             bounds=repr(scaler.latlng_bounds(o['bounds'])),
-            boxFillColour=deriveColour(o['boxFillColour']),
             centrePoint=repr(scaler.latlng(o['centrePoint'])),
-            characterColour=deriveColour(o['characterColour']),
+            boxColor=note.get('background', 'rgb(256,256,256)'),
+            characterColor=deriveColor(o['characterColor']),
             fontSize=repr(scaler.distance(o['fontSize'])),
             contents=deriveText(o['contents']),
             ident=deriveIdent(o['path']),
+            layer=o['layer'].strip('-~').strip(),
             qcontents=deriveQcon(o['path']),
             typeface=o['typeface'],
             # TODO: matrix, opacity, area
@@ -131,15 +140,23 @@ def to_transform(data, omit):
     return {
         'data': rows,
         'lets': {
+            # TODO: Clarify label ident as per-layer but thing ident as common
             'iri': 'vm:label-{row[ident].as_slug}',
+            'layer': '{row[layer].as_text}',
             'name': '{row[contents].as_text}',
             'nname': '{row[qcontents].as_text}',
         },
         'queries': {
             'for': '''
-                select ?t where {
-                    ?t vm:name ?o .
+                select ?s where {
+                    ?s vm:name ?o .
                     filter (?o in (?name, ?nname))
+                }
+            ''',
+            'view': '''
+                select ?s where {
+                    ?s rdf:type vm:View .
+                    ?s vm:comment ?layer .
                 }
             ''',
         },
@@ -149,10 +166,11 @@ def to_transform(data, omit):
             ('{iri}', 'vm:fontFamily', '{row[typeface]}'),
             ('{iri}', 'vm:description', '{name}'),
             ('{iri}', 'vm:atGeoPoint', '{row[centrePoint]}'),
-            ('{iri}', 'vm:fontColor', '{row[characterColour]}'),
+            ('{iri}', 'vm:fontColor', '{row[characterColor]}'),
             ('{iri}', 'vm:boxBounds', '{row[bounds]}'),
-            ('{iri}', 'vm:boxColor', '{row[boxFillColour]}'),
+            ('{iri}', 'vm:boxColor', '{row[boxColor]}'),
             ('{iri}', 'vm:forThing', '{for}'),
+            ('{iri}', 'vm:forView', '{view}'),
         ],
     }
 
