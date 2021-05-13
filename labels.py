@@ -182,13 +182,21 @@ def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--encoding', default='utf-8')
     parser.add_argument('--omit-layer', action='append')
+    parser.add_argument('--output')
     parser.add_argument('input')
     args = parser.parse_args(argv[1:])
 
     with open(args.input, encoding=args.encoding) as f:
         data = json.load(f)
 
-    pprint.pprint(to_transform(data, args.omit_layer or ()))
+    out_data = pprint.pformat(to_transform(data, args.omit_layer or ()))
+
+    if args.output:
+        with open(args.output, 'w', encoding='utf-8') as f_out:
+            f_out.write(out_data)
+    else:
+        print(out_data)
+    
     return 0
 
 
