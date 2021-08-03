@@ -245,24 +245,17 @@ class Scaler:
         ]
 
 
-def to_transform(data, name_for_layer, omit):
+def to_transform(data, source, name_for_layer, omit):
     scaler = Scaler.from_artboard(data['artboard'])
     layers = map_layers(data['layers'], name_for_layer, omit)
     rows = list(iter_labels(layers, scaler))
     # TODO: merge labels across views
-    return {
+    transform = {
         'data': rows,
         'lets': {
             'iri': 'vm:l{row[layer].as_text}-{row[ident].as_text}',
             'layer': '{row[layer].as_text}',
             'content': '{row[qcontents].as_text}',
-            'maybe_for': 'vm:_thing_{row[qcontents].as_slug}',
-        },
-        'queries': {
-            'for': (
-                'select ?maybe_for where {'
-                '  { ?maybe_for ?p ?o } union { ?s ?p ?maybe_for }'
-                '} limit 1'),
         },
         'triples': [
             ('{iri}', 'rdf:type', 'vm:Label'),
@@ -273,6 +266,28 @@ def to_transform(data, name_for_layer, omit):
         ],
     }
 
+    if source:
+        transform['lets']['for'] = 'vm:HE/{row[qcontents].as_slug}'
+        source_triples = [
+            ('{for}', 'rdf:type', '{row[type].as_text}'),
+            ('{for}', 'vm:name', '{row[qcontents].as_text}'),
+            ('{for}', 'vm:atGeoPoly', '{row[area].as_text}'),
+            ('{for}', 'vm:withGeoPath', '{row[dataLocation].as_text}'),
+            ('{for}', 'vm:broader', 'vm:HE/{row[pqcontents].as_slug}'),
+        ]
+        transform['triples'].extend(source_triples)
+
+    else:
+        transform['queries'] = {
+            'for': (
+                'select ?maybe_for where {'
+                '  { ?maybe_for ?p ?o } union { ?s ?p ?maybe_for }'
+                '} limit 1'),
+        }
+        transform['lets']['maybe_for'] = 'vm:_thing_{row[qcontents].as_slug}'
+
+    return transform
+
 
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
@@ -280,13 +295,15 @@ def main(argv):
     parser.add_argument('--name-layer')
     parser.add_argument('--omit-layer', action='append')
     parser.add_argument('--output')
+    parser.add_argument('-s', '--source', action='store_true',
+        help='Use labels json as source data for model, e.g. creating Activity objects from Activity labels.')
     parser.add_argument('input')
     args = parser.parse_args(argv[1:])
 
     with open(args.input, encoding=args.encoding) as f:
         data = json.load(f)
 
-    out_data = pprint.pformat(to_transform(data, args.omit_layer or ()))
+    out_data = pprint.pformat(to_transform(data, args.source, args.name_layer, args.omit_layer or ()))
 
     if args.output:
         with open(args.output, 'w', encoding='utf-8') as f_out:
