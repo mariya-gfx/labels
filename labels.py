@@ -128,7 +128,7 @@ def map_layers(layers, name_for_layer, omit):
             yield dict(depth=0, uid=name, layer=layer_name, **layer)
 
 
-def map_labels(labels, parent, counter):
+def map_labels(labels, parent, counter, defaults):
     for label in labels:
         contents = label['name']['contents']
         if contents == parent.get('contents') or not contents.strip():
@@ -148,19 +148,19 @@ def map_labels(labels, parent, counter):
             n=next(counter),
             text=deriveText(label['name'].pop('contents')),
             anchorName=note.pop('anchorName', parent.get('anchorName', '')),
-            classFor=deriveClass(note.pop('class', parent.get('class', 'vm:HE/Activity'))),
+            classFor=deriveClass(note.pop('class', parent.get('class', defaults['class']))),
             note=note,
             **label['name'],
         )
 
 
-def iter_labels(layers, scaler):
+def iter_labels(layers, scaler, defaults):
     counter = itertools.count()
     stack = list(layers)
     stack.reverse()
     while stack:
         o = stack.pop()
-        stack.extend(map_labels(reversed(o['children']), o, counter))
+        stack.extend(map_labels(reversed(o['children']), o, counter, defaults))
         print(
             '{indent}{name}'.format(
                 indent=o['depth'] * '  ',
@@ -245,10 +245,10 @@ class Scaler:
         ]
 
 
-def to_transform(data, source, name_for_layer, omit):
+def to_transform(data, source, name_for_layer, omit, prefix, defaults):
     scaler = Scaler.from_artboard(data['artboard'])
     layers = map_layers(data['layers'], name_for_layer, omit)
-    rows = list(iter_labels(layers, scaler))
+    rows = list(iter_labels(layers, scaler, defaults))
     # TODO: merge labels across views
     transform = {
         'data': rows,
@@ -267,13 +267,13 @@ def to_transform(data, source, name_for_layer, omit):
     }
 
     if source:
-        transform['lets']['for'] = 'vm:HE/{row[qcontents].as_slug}'
+        transform['lets']['for'] = prefix + '{row[qcontents].as_slug}'
         source_triples = [
             ('{for}', 'rdf:type', '{row[type].as_text}'),
             ('{for}', 'vm:name', '{row[qcontents].as_text}'),
             ('{for}', 'vm:atGeoPoly', '{row[area].as_text}'),
             ('{for}', 'vm:withGeoPath', '{row[dataLocation].as_text}'),
-            ('{for}', 'vm:broader', 'vm:HE/{row[pqcontents].as_slug}'),
+            ('{for}', 'vm:broader', prefix + '{row[pqcontents].as_slug}'),
         ]
         transform['triples'].extend(source_triples)
 
@@ -295,6 +295,8 @@ def main(argv):
     parser.add_argument('--name-layer')
     parser.add_argument('--omit-layer', action='append')
     parser.add_argument('--output')
+    parser.add_argument('--individual-default-class', default='owl:Thing')
+    parser.add_argument('--individual-prefix', default='vm:_')
     parser.add_argument('-s', '--source', action='store_true',
         help='Use labels json as source data for model, e.g. creating Activity objects from Activity labels.')
     parser.add_argument('input')
@@ -303,7 +305,10 @@ def main(argv):
     with open(args.input, encoding=args.encoding) as f:
         data = json.load(f)
 
-    out_data = pprint.pformat(to_transform(data, args.source, args.name_layer, args.omit_layer or ()))
+    out_data = pprint.pformat(to_transform(
+        data, args.source, args.name_layer, args.omit_layer or (),
+        args.individual_prefix, {'class': args.individual_default_class},
+    ))
 
     if args.output:
         with open(args.output, 'w', encoding='utf-8') as f_out:
