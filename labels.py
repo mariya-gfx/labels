@@ -34,6 +34,8 @@ def fixColor(string):
 def deriveClass(url):
     if url == 'activity':
         return 'vm:HE/Activity'
+    if url == 'category':
+        return 'vm:Category'
     return url.replace('https:', 'http:')
 
 
@@ -113,18 +115,32 @@ def pair(alist):
     return [[alist[i-1], alist[i]] for i in range(1, len(alist), 2)]
 
 
+def unparentable(o):
+    return o['classFor'] == 'vm:Flow'
+
+
 def json_str(obj):
     """Dump as json str in most compact representation"""
     return json.dumps(obj, separators=(',', ':'))
+
+
+def resolve_layer(messy, name_for_layer):
+    name = '-'.join(messy.lstrip('-~').split(' · ')[0].strip().lower().split())
+    zoom = None
+    if not name.strip('-0123456789'):
+        name, zoom = '', name
+    if name_for_layer is not None:
+       name = name_for_layer
+    if zoom:
+        return name + '@' + zoom
+    return name
 
 
 def map_layers(layers, name_for_layer, omit):
     for layer in layers:
         name = layer['name']
         if name.startswith(('~', '-', '-~')) and name not in omit:
-            layer_name = '-'.join(name.lstrip('-~').split(' · ')[0].strip().lower().split())
-            if name_for_layer is not None:
-                layer_name = name_for_layer + '@' + layer_name
+            layer_name = resolve_layer(name, name_for_layer)
             yield dict(depth=0, uid=name, layer=layer_name, **layer)
 
 
@@ -177,6 +193,8 @@ def iter_labels(layers, scaler, defaults):
             dataLocation=deriveLocation(scaler, o['dataLocation']),
             type=o['classFor'],
         )
+        if unparentable(o):
+            del row['pqcontents']
         if not o.get('hidden'):
             display = dict(
                 box=scaler.latlng_bounds(o['bounds']),
@@ -188,7 +206,8 @@ def iter_labels(layers, scaler, defaults):
                 # TODO: matrix, opacity
             )
             row['display'] = json_str(display)
-            row['geoPoint'] = json_str(scaler.latlng(o['centrePoint']))
+        # Experiment with including point even for hidden labels
+        row['geoPoint'] = json_str(scaler.latlng(o['centrePoint']))
         yield row
 
 
