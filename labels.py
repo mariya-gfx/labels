@@ -62,6 +62,7 @@ def deriveNote(contents):
         .replace('org_unit_id:', 'org_unit_id =')
         .replace(' class:', '\nclass =')
         .replace('fullname =', 'fullName =')
+        .replace('title background', 'background')
         .splitlines())
     entries = (line.partition('=') for line in lines)
     return {k.strip(): v.strip().strip('"') for k, _, v in entries}
