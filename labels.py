@@ -288,14 +288,13 @@ def to_transform(data, source, name_for_layer, omit, prefix, defaults):
 
     if source:
         transform['lets']['for'] = prefix + '{row[qcontents].as_slug}'
-        source_triples = [
+        transform['triples'].extend([
             ('{for}', 'rdf:type', '{row[type].as_text}'),
             ('{for}', 'vm:name', '{row[qcontents].as_text}'),
             ('{for}', 'vm:atGeoPoly', '{row[area].as_text}'),
             ('{for}', 'vm:withGeoPath', '{row[dataLocation].as_text}'),
             ('{for}', 'vm:broader', prefix + '{row[pqcontents].as_slug}'),
-        ]
-        transform['triples'].extend(source_triples)
+        ])
 
     else:
         transform['queries'] = {
@@ -305,6 +304,10 @@ def to_transform(data, source, name_for_layer, omit, prefix, defaults):
                 '} limit 1'),
         }
         transform['lets']['maybe_for'] = 'vm:_thing_{row[qcontents].as_slug}'
+        transform['triples'].extend([
+            ('{maybe_for}', 'vm:atGeoPoly', '{row[area].as_text}'),
+            ('{maybe_for}', 'vm:withGeoPath', '{row[dataLocation].as_text}'),
+        ])
 
     return transform
 
