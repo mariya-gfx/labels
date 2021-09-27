@@ -293,9 +293,8 @@ def to_transform(data, source, name_for_layer, omit, prefix, defaults):
             ('{for}', 'vm:name', '{row[qcontents].as_text}'),
             ('{for}', 'vm:atGeoPoly', '{row[area].as_text}'),
             ('{for}', 'vm:withGeoPath', '{row[dataLocation].as_text}'),
-            ('{for}', 'vm:broader', prefix + '{row[pqcontents].as_slug}'),
+            ('{for}', defaults['up'], prefix + '{row[pqcontents].as_slug}'),
         ])
-
     else:
         transform['queries'] = {
             'for': (
@@ -322,6 +321,8 @@ def main(argv):
     parser.add_argument('--individual-prefix', default='vm:_')
     parser.add_argument('-s', '--source', action='store_true',
         help='Use labels json as source data for model, e.g. creating Activity objects from Activity labels.')
+    parser.add_argument('--up-predicate', default='vm:broader',
+        help='IRI for predicate to use for up relationships from source.')
     parser.add_argument('input')
     args = parser.parse_args(argv[1:])
 
@@ -330,7 +331,10 @@ def main(argv):
 
     out_data = pprint.pformat(to_transform(
         data, args.source, args.name_layer, args.omit_layer or (),
-        args.individual_prefix, {'class': args.individual_default_class},
+        args.individual_prefix, {
+            'class': args.individual_default_class,
+            'up': args.up_predicate,
+        },
     ))
 
     if args.output:
@@ -338,7 +342,7 @@ def main(argv):
             f_out.write(out_data)
     else:
         print(out_data)
-    
+
     return 0
 
 
