@@ -94,7 +94,7 @@ def deriveAcon(obj):
 
 
 def deriveText(string):
-    lines = string.strip().replace('\u0003', ' ').split('\r')
+    lines = string.replace('\u0003', '\r').strip().split('\r')
     return '\n'.join(line.strip() for line in lines)
 
 
