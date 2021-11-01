@@ -63,9 +63,10 @@ def deriveNote(contents):
         .replace(' class:', '\nclass =')
         .replace('fullname =', 'fullName =')
         .replace('title background', 'background')
+        .replace('#transparent', 'transparent')
         .splitlines())
     entries = (line.partition('=') for line in lines)
-    return {k.strip(): v.strip().strip('"') for k, _, v in entries}
+    return {k.strip(): v.strip().strip('"').strip() for k, _, v in entries}
 
 
 def deriveQcon(path):
