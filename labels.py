@@ -31,12 +31,13 @@ def fixColor(string):
     return '#' + string.lstrip('#')
 
 
-def deriveClass(url):
-    if url == 'activity':
-        return 'vm:HE/Activity'
-    if url == 'category':
-        return 'vm:Category'
-    return url.replace('https:', 'http:')
+def deriveClass(url, defaults):
+    for operator, existing, replace in defaults['rewrite_class']:
+        if operator == '==' and url == existing:
+            return replace
+        elif operator == '*=' and url.startswith(existing):
+            return replace + url[len(existing):]
+    return url
 
 
 def deriveHashIdent(obj):
@@ -132,7 +133,10 @@ def resolve_layer(messy, name_for_layer):
     if not name.strip('-0123456789'):
         name, zoom = '', name
     if name_for_layer is not None:
-       name = name_for_layer
+        # preserve existing zoom layers if present and not overridden by name_for_layer
+        if '@' in name and '@' not in name_for_layer:
+            zoom = name.split('@')[1]
+        name = name_for_layer
     if zoom:
         return name + '@' + zoom
     return name
@@ -166,7 +170,7 @@ def map_labels(labels, parent, counter, defaults):
             n=next(counter),
             text=deriveText(label['name'].pop('contents')),
             anchorName=note.pop('anchorName', parent.get('anchorName', '')),
-            classFor=deriveClass(note.pop('class', parent.get('class', defaults['class']))),
+            classFor=deriveClass(note.pop('class', parent.get('class', defaults['class'])), defaults),
             note=note,
             **label['name'],
         )
@@ -312,6 +316,15 @@ def to_transform(data, source, name_for_layer, omit, prefix, defaults):
     return transform
 
 
+def _rewrite_class_arg(arg):
+    for op in ('==', '*='):
+        key, operator, value = arg.partition(op)
+        if operator:
+            return (operator, key, value)
+    raise argparse.ArgumentTypeError(
+        'arguments must be key-value terms separated by a *= or == operator, e.g. category==vm:Category or vm:*=vm:HE/')
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--encoding', default='utf-8')
@@ -324,6 +337,12 @@ def main(argv):
         help='Use labels json as source data for model, e.g. creating Activity objects from Activity labels.')
     parser.add_argument('--up-predicate', default='vm:broader',
         help='IRI for predicate to use for up relationships from source.')
+    parser.add_argument('--rewrite-class', action='append', type=_rewrite_class_arg, 
+        default=[('*=', 'https:', 'http:'), ('==', 'activity', 'vm:HE/Activity'), ('==', 'category', 'vm:Category')],
+        help='A <key><operator><value> argument describing how the class should be rewritten, for example vm:*=vm:HE/ .' 
+        ' Valid operators are == , which will fully replace any whole class string exactly matching the key with the value,'
+        ' and *= , which will replace any class prefix matching the key with the value while retaining the rest of the'
+        ' string.')
     parser.add_argument('input')
     args = parser.parse_args(argv[1:])
 
@@ -334,6 +353,7 @@ def main(argv):
         data, args.source, args.name_layer, args.omit_layer or (),
         args.individual_prefix, {
             'class': args.individual_default_class,
+            'rewrite_class': args.rewrite_class,
             'up': args.up_predicate,
         },
     ))
