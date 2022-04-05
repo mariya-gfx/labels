@@ -307,7 +307,10 @@ def to_transform(data, source, name_for_layer, omit, prefix, defaults):
                 '  { ?maybe_for ?p ?o } union { ?s ?p ?maybe_for }'
                 '} limit 1'),
         }
-        transform['lets']['maybe_for'] = 'vm:_thing_{row[qcontents].as_slug}'
+        if prefix == 'vm:_':
+            transform['lets']['maybe_for'] = prefix + 'thing_{row[qcontents].as_slug}'
+        else:
+            transform['lets']['maybe_for'] = prefix + '_{row[qcontents].as_slug}'
         transform['triples'].extend([
             ('{maybe_for}', 'vm:atGeoPoly', '{row[area].as_text}'),
             ('{maybe_for}', 'vm:withGeoPath', '{row[dataLocation].as_text}'),
@@ -329,7 +332,6 @@ def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--encoding', default='utf-8')
     parser.add_argument('--name-layer')
-    parser.add_argument('--omit-layer', action='append')
     parser.add_argument('--output')
     parser.add_argument('--individual-default-class', default='owl:Thing')
     parser.add_argument('--individual-prefix', default='vm:_')
@@ -344,10 +346,18 @@ def main(argv):
         ' and *= , which will replace any class prefix matching the key with the value while retaining the rest of the'
         ' string.')
     parser.add_argument('input')
+
+    layergroup = parser.add_mutually_exclusive_group()
+    layergroup.add_argument('--omit-layer', action='append')
+    layergroup.add_argument('--only-layer', help='Only include labels from this layer.')
+    
     args = parser.parse_args(argv[1:])
 
     with open(args.input, encoding=args.encoding) as f:
         data = json.load(f)
+
+    if args.only_layer:
+        args.omit_layer = [l['name'] for l in data['layers'] if l['name'] != args.only_layer]
 
     out_data = pprint.pformat(to_transform(
         data, args.source, args.name_layer, args.omit_layer or (),
