@@ -4,10 +4,12 @@
 
 import argparse
 import base64
+import collections
 import hashlib
 import itertools
 import json
 import pprint
+import re
 import sys
 
 
@@ -175,10 +177,44 @@ def map_labels(labels, parent, counter, defaults):
             **label['name'],
         )
 
+def make_lens_details(stack):
+    layers_and_zooms = collections.defaultdict(set)
+    for o in stack:
+        # need to make some assumptions about layer name format in order to extract lensdetail details
+        if not re.search(r"[a-zA-Z0-9]*@(?:[0-9]|[0-9]\-[0-9])$", o['layer']):
+            raise ValueError("invalid layer name for generating forLensDetail")
+        layername, zoom = o['layer'].split('@')
+        layers_and_zooms[layername].add(zoom)
+    
+    lens_details = dict()
+    for layer in layers_and_zooms:
+        for i, zoom in enumerate(sorted(layers_and_zooms[layer])):
+            layername_again = '{}@{}'.format(layer, zoom)
+            detail_level_name = 'vm:_detail_{}_{}'.format(layer, i+1)
+            lens_details[layername_again] = detail_level_name
+
+    return lens_details
+
+
+def noop(*args, **kwargs):
+    """Do nothing"""
+
+
+def build_lens_details(defaults, stack):
+    if not defaults['lens_detail']:
+        return noop
+    details = make_lens_details(stack)
+    
+    def apply_to_row(row, o):
+        row['lensDetail'] = details[o['layer']]
+        
+    return apply_to_row
+    
 
 def iter_labels(layers, scaler, defaults):
     counter = itertools.count()
     stack = list(layers)
+    maybe_apply_lens_detail = build_lens_details(defaults, stack)
     stack.reverse()
     while stack:
         o = stack.pop()
@@ -214,6 +250,7 @@ def iter_labels(layers, scaler, defaults):
             row['display'] = json_str(display)
         # Experiment with including point even for hidden labels
         row['geoPoint'] = json_str(scaler.latlng(o['centrePoint']))
+        maybe_apply_lens_detail(row, o)
         yield row
 
 
@@ -279,7 +316,6 @@ def to_transform(data, source, name_for_layer, omit, prefix, defaults):
         'data': rows,
         'lets': {
             'iri': 'vm:l{row[layer].as_text}-{row[ident].as_text}',
-            'layer': '{row[layer].as_text}',
             'content': '{row[qcontents].as_text}',
         },
         'triples': [
@@ -287,9 +323,19 @@ def to_transform(data, source, name_for_layer, omit, prefix, defaults):
             ('{iri}', 'vm:atGeoPoint', '{row[geoPoint].as_text}'),
             ('{iri}', 'vm:display', '{row[display].as_text}'),
             ('{iri}', 'vm:forThing', '{for}'),
-            ('{iri}', 'vm:forLayer', '{layer}'),
         ],
     }
+
+    if defaults['lens_detail']:
+        transform['lets']['lensDetail'] = '{row[lensDetail].as_text}'
+        transform['triples'].append(
+            ('{iri}', 'vm:forLensDetail', '{lensDetail}'),
+        )
+    else:
+        transform['lets']['layer'] = '{row[layer].as_text}'
+        transform['triples'].append(
+            ('{iri}', 'vm:forLayer', '{layer}'),
+        )
 
     if source:
         transform['lets']['for'] = prefix + '{row[qcontents].as_slug}'
@@ -345,6 +391,7 @@ def main(argv):
         ' Valid operators are == , which will fully replace any whole class string exactly matching the key with the value,'
         ' and *= , which will replace any class prefix matching the key with the value while retaining the rest of the'
         ' string.')
+    parser.add_argument('-d', '--lens-detail', action='store_true')
     parser.add_argument('input')
 
     layergroup = parser.add_mutually_exclusive_group()
@@ -365,6 +412,7 @@ def main(argv):
             'class': args.individual_default_class,
             'rewrite_class': args.rewrite_class,
             'up': args.up_predicate,
+            'lens_detail': args.lens_detail,
         },
     ))
 
