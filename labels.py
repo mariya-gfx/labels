@@ -224,7 +224,7 @@ def iter_labels(layers, scaler, defaults):
                 indent=o['depth'] * '  ',
                 name=o.get('name') or o['text'].replace('\n', ' ')),
             file=sys.stderr)
-        if o.get('type'):
+        if o.get('type') or o.get('pdfFile'):
             continue
         row = dict(
             ident=deriveHashIdent(o),
