@@ -30,6 +30,8 @@ def deriveColor(col):
 def fixColor(string):
     if string is None:
         return '#fff'
+    if 'transp' in string:
+        return 'transparent'
     return '#' + string.lstrip('#')
 
 
@@ -66,7 +68,6 @@ def deriveNote(contents):
         .replace(' class:', '\nclass =')
         .replace('fullname =', 'fullName =')
         .replace('title background', 'background')
-        .replace('#transparent', 'transparent')
         .splitlines())
     entries = (line.partition('=') for line in lines)
     return {k.strip(): v.strip().strip('"').strip() for k, _, v in entries}
