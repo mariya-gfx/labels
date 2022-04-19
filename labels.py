@@ -174,6 +174,7 @@ def map_labels(labels, parent, counter, defaults):
             anchorName=note.pop('anchorName', parent.get('anchorName', '')),
             classFor=deriveClass(note.pop('class', parent.get('class', defaults['class'])), defaults),
             note=note,
+            background=label.get('background', note.pop('background', None)),
             **label['name'],
         )
 
@@ -240,7 +241,7 @@ def iter_labels(layers, scaler, defaults):
         if not o.get('hidden'):
             display = dict(
                 box=scaler.latlng_bounds(o['bounds']),
-                background=fixColor(o['note'].get('background')),
+                background=fixColor(o['background']),
                 color=deriveColor(o['characterColour']),
                 text=o['text'],
                 fontFamily=o['typeface'],
