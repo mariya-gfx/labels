@@ -175,7 +175,7 @@ def map_labels(labels, parent, counter, defaults):
             anchorName=note.pop('anchorName', parent.get('anchorName', '')),
             classFor=deriveClass(note.pop('class', parent.get('class', defaults['class'])), defaults),
             note=note,
-            background=label.get('background', note.pop('background', None)),
+            background=note.pop('background', label.get('background', None)),
             **label['name'],
         )
 
