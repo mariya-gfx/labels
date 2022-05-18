@@ -118,7 +118,7 @@ def deriveLocation(scaler, loc):
 
 
 def pair(alist):
-    return [[alist[i-1], alist[i]] for i in range(1, len(alist), 2)]
+    return [[alist[i - 1], alist[i]] for i in range(1, len(alist), 2)]
 
 
 def unparentable(o):
@@ -157,7 +157,7 @@ def map_labels(labels, parent, counter, defaults):
     for label in labels:
         contents = label['name']['contents']
         if contents == parent.get('contents') or not contents.strip():
-            print ('DUPE', contents.replace('\r', ' '), file=sys.stderr)
+            print('DUPE', contents.replace('\r', ' '), file=sys.stderr)
             continue  # Skip duplicated immediate child labels
         note = deriveNote(label['name'].pop('note', ''))
         yield dict(
@@ -179,6 +179,7 @@ def map_labels(labels, parent, counter, defaults):
             **label['name'],
         )
 
+
 def make_lens_details(stack):
     layers_and_zooms = collections.defaultdict(set)
     for o in stack:
@@ -187,12 +188,12 @@ def make_lens_details(stack):
             raise ValueError("invalid layer name for generating forLensDetail")
         layername, zoom = o['layer'].split('@')
         layers_and_zooms[layername].add(zoom)
-    
+
     lens_details = dict()
     for layer in layers_and_zooms:
         for i, zoom in enumerate(sorted(layers_and_zooms[layer])):
             layername_again = '{}@{}'.format(layer, zoom)
-            detail_level_name = 'vm:_detail_{}_{}'.format(layer, i+1)
+            detail_level_name = 'vm:_detail_{}_{}'.format(layer, i + 1)
             lens_details[layername_again] = detail_level_name
 
     return lens_details
@@ -206,12 +207,12 @@ def build_lens_details(defaults, stack):
     if not defaults['lens_detail']:
         return noop
     details = make_lens_details(stack)
-    
+
     def apply_to_row(row, o):
         row['lensDetail'] = details[o['layer']]
-        
+
     return apply_to_row
-    
+
 
 def iter_labels(layers, scaler, defaults):
     counter = itertools.count()
@@ -275,7 +276,8 @@ class Scaler:
     def from_rect(cls, x1, y1, x2, y2):
         scale_x = abs(cls.SIZE / (x2 - x1))
         scale_y = abs(cls.SIZE / (y2 - y1))
-        #assert scale_x == scale_y
+        if scale_x != scale_y:
+            print('MISMATCH artboard', x1, y1, x2, y2, file=sys.stderr)
         return cls(x1, y1, scale_x)
 
     @classmethod
@@ -383,13 +385,16 @@ def main(argv):
     parser.add_argument('--output')
     parser.add_argument('--individual-default-class', default='owl:Thing')
     parser.add_argument('--individual-prefix', default='vm:_')
-    parser.add_argument('-s', '--source', action='store_true',
+    parser.add_argument(
+        '-s', '--source', action='store_true',
         help='Use labels json as source data for model, e.g. creating Activity objects from Activity labels.')
-    parser.add_argument('--up-predicate', default='vm:broader',
+    parser.add_argument(
+        '--up-predicate', default='vm:broader',
         help='IRI for predicate to use for up relationships from source.')
-    parser.add_argument('--rewrite-class', action='append', type=_rewrite_class_arg, 
+    parser.add_argument(
+        '--rewrite-class', action='append', type=_rewrite_class_arg,
         default=[('*=', 'https:', 'http:'), ('==', 'activity', 'vm:HE/Activity'), ('==', 'category', 'vm:Category')],
-        help='A <key><operator><value> argument describing how the class should be rewritten, for example vm:*=vm:HE/ .' 
+        help='A <key><operator><value> argument describing how the class should be rewritten, for example vm:*=vm:HE/ .'
         ' Valid operators are == , which will fully replace any whole class string exactly matching the key with the value,'
         ' and *= , which will replace any class prefix matching the key with the value while retaining the rest of the'
         ' string.')
@@ -399,14 +404,15 @@ def main(argv):
     layergroup = parser.add_mutually_exclusive_group()
     layergroup.add_argument('--omit-layer', action='append')
     layergroup.add_argument('--only-layer', help='Only include labels from this layer.')
-    
+
     args = parser.parse_args(argv[1:])
 
     with open(args.input, encoding=args.encoding) as f:
         data = json.load(f)
 
     if args.only_layer:
-        args.omit_layer = [l['name'] for l in data['layers'] if l['name'] != args.only_layer]
+        args.omit_layer = set(layer['name'] for layer in data['layers'])
+        args.omit_layer.discard(args.only_layer)
 
     out_data = pprint.pformat(to_transform(
         data, args.source, args.name_layer, args.omit_layer or (),
