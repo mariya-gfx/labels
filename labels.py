@@ -411,8 +411,9 @@ def main(argv):
         data = json.load(f)
 
     if args.only_layer:
-        args.omit_layer = set(layer['name'] for layer in data['layers'])
-        args.omit_layer.discard(args.only_layer)
+        args.omit_layer = set(
+            layer['name'] for layer in data['layers'] if not layer['name'].startswith(args.only_layer)
+        )
 
     out_data = pprint.pformat(to_transform(
         data, args.source, args.name_layer, args.omit_layer or (),
