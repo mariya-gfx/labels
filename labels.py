@@ -5,6 +5,7 @@
 import argparse
 import base64
 import collections
+import contextlib
 import hashlib
 import itertools
 import json
@@ -222,12 +223,9 @@ def iter_labels(layers, scaler, defaults):
     while stack:
         o = stack.pop()
         stack.extend(map_labels(reversed(o['children']), o, counter, defaults))
-        print(
-            '{indent}{name}'.format(
-                indent=o['depth'] * '  ',
-                name=o.get('name') or o['text'].replace('\n', ' ')),
-            file=sys.stderr)
         if o.get('type') or o.get('parent') is None:
+            # This is not a label, it's probably a top level layer
+            defaults['tracking'](o, None)
             continue
         row = dict(
             ident=deriveHashIdent(o),
@@ -254,7 +252,50 @@ def iter_labels(layers, scaler, defaults):
         # Experiment with including point even for hidden labels
         row['geoPoint'] = json_str(scaler.latlng(o['centrePoint']))
         maybe_apply_lens_detail(row, o)
+        defaults['tracking'](o, row)
         yield row
+
+
+def track_label_details(o, row):
+    """Default out of band output for processed labels."""
+    name = o['name'] if row is None else o['text'].replace('\n', ' ')
+    print(
+        '{indent}{name}'.format(indent=o['depth'] * '  ', name=name),
+        file=sys.stderr)
+
+
+def _as_slug(text, _pat=re.compile(r'\W+')):
+    """Make text suitable for appearing in an IRI.
+
+    Same basic logic as used by sheet-to-triples.
+    """
+    return _pat.sub('-', text.replace('&', 'and')).lower()
+
+
+@contextlib.contextmanager
+def build_tracker(args):
+    """Create a function for reporting labels as they are processed."""
+    if args.export_tabular is None:
+        yield track_label_details
+        return
+
+    with open(args.export_tabular, 'w') as f:
+        print('layer\tdepth\tlabel\tname\tparent\tiri_suffix', file=f)
+
+        def _track_label_as_tsv(o, row):
+            if row is None:
+                return
+            record = '{}\t{}\t{}\t{}\t{}\t{}'.format(
+                o['layer'],
+                o['depth'],
+                '|'.join(o['text'].split('\n')),
+                row['qcontents'],
+                row['pqcontents'],
+                args.individual_prefix + _as_slug(row['qcontents']),
+            )
+            print(record, file=f)
+
+        yield _track_label_as_tsv
 
 
 class Scaler:
@@ -369,6 +410,14 @@ def to_transform(data, source, name_for_layer, omit, prefix, defaults):
     return transform
 
 
+def remaining_layers(layers, only_layer):
+    """Turn only_layer into the set of layers to omit instead."""
+    return () if only_layer is None else set(
+        layer['name'] for layer in layers
+        if not layer['name'].startswith(only_layer)
+    )
+
+
 def _rewrite_class_arg(arg):
     for op in ('==', '*='):
         key, operator, value = arg.partition(op)
@@ -382,7 +431,7 @@ def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--encoding', default='utf-8')
     parser.add_argument('--name-layer')
-    parser.add_argument('--output')
+    parser.add_argument('--output', metavar='PATH')
     parser.add_argument('--individual-default-class', default='owl:Thing')
     parser.add_argument('--individual-prefix', default='vm:_')
     parser.add_argument(
@@ -399,6 +448,9 @@ def main(argv):
         ' and *= , which will replace any class prefix matching the key with the value while retaining the rest of the'
         ' string.')
     parser.add_argument('-d', '--lens-detail', action='store_true')
+    parser.add_argument(
+        '--export-tabular', metavar='PATH',
+        help='Also record all labels in tabular format to another file.')
     parser.add_argument('input')
 
     layergroup = parser.add_mutually_exclusive_group()
@@ -410,20 +462,20 @@ def main(argv):
     with open(args.input, encoding=args.encoding) as f:
         data = json.load(f)
 
-    if args.only_layer:
-        args.omit_layer = set(
-            layer['name'] for layer in data['layers'] if not layer['name'].startswith(args.only_layer)
-        )
+    omit_layers = args.omit_layer or remaining_layers(
+        data['layers'], args.only_layer)
 
-    out_data = pprint.pformat(to_transform(
-        data, args.source, args.name_layer, args.omit_layer or (),
-        args.individual_prefix, {
-            'class': args.individual_default_class,
-            'rewrite_class': args.rewrite_class,
-            'up': args.up_predicate,
-            'lens_detail': args.lens_detail,
-        },
-    ))
+    with build_tracker(args) as tracking_fn:
+        out_data = pprint.pformat(to_transform(
+            data, args.source, args.name_layer, omit_layers,
+            args.individual_prefix, {
+                'class': args.individual_default_class,
+                'rewrite_class': args.rewrite_class,
+                'up': args.up_predicate,
+                'lens_detail': args.lens_detail,
+                'tracking': tracking_fn,
+            },
+        ))
 
     if args.output:
         with open(args.output, 'w', encoding='utf-8') as f_out:
