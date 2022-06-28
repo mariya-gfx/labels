@@ -269,33 +269,36 @@ def _as_slug(text, _pat=re.compile(r'\W+')):
 
     Same basic logic as used by sheet-to-triples.
     """
-    return _pat.sub('-', text.replace('&', 'and')).lower()
+    return _pat.sub('-', text.replace('&', ' and ')).strip('-').lower()
 
 
 @contextlib.contextmanager
-def build_tracker(args):
-    """Create a function for reporting labels as they are processed."""
-    if args.export_tabular is None:
-        yield track_label_details
-        return
-
-    with open(args.export_tabular, 'w') as f:
-        print('layer\tdepth\tlabel\tname\tparent\tiri_suffix', file=f)
+def track_labels_tabular(outfile, individual_prefix):
+    with open(outfile, 'w') as f:
+        print('layer\tdepth\tlabel\tname\tparent\tanchor\tiri_suffix', file=f)
 
         def _track_label_as_tsv(o, row):
             if row is None:
                 return
-            record = '{}\t{}\t{}\t{}\t{}\t{}'.format(
+            record = '{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
                 o['layer'],
                 o['depth'],
                 '|'.join(o['text'].split('\n')),
                 row['qcontents'],
                 row['pqcontents'],
-                args.individual_prefix + _as_slug(row['qcontents']),
+                o['anchorName'],
+                individual_prefix + _as_slug(row['qcontents']),
             )
             print(record, file=f)
 
         yield _track_label_as_tsv
+
+
+def build_tracker(args):
+    """Create a function for reporting labels as they are processed."""
+    if args.export_tabular is None:
+        return contextlib.nullcontext(track_label_details)
+    return track_labels_tabular(args.export_tabular, args.individual_prefix)
 
 
 class Scaler:
