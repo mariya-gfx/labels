@@ -296,6 +296,8 @@ def track_labels_tabular(outfile, individual_prefix):
 
 def build_tracker(args):
     """Create a function for reporting labels as they are processed."""
+    if args.quiet:
+        return contextlib.nullcontext(lambda o, row: None)
     if args.export_tabular is None:
         return contextlib.nullcontext(track_label_details)
     return track_labels_tabular(args.export_tabular, args.individual_prefix)
@@ -451,10 +453,16 @@ def main(argv):
         ' and *= , which will replace any class prefix matching the key with the value while retaining the rest of the'
         ' string.')
     parser.add_argument('-d', '--lens-detail', action='store_true')
-    parser.add_argument(
+    parser.add_argument('input')
+
+    trackergroup = parser.add_mutually_exclusive_group()
+    trackergroup.add_argument(
+        '-q', '--quiet', action='store_true',
+        help='Do not print tree to console as it is processed.'
+    )
+    trackergroup.add_argument(
         '--export-tabular', metavar='PATH',
         help='Also record all labels in tabular format to another file.')
-    parser.add_argument('input')
 
     layergroup = parser.add_mutually_exclusive_group()
     layergroup.add_argument('--omit-layer', action='append')
