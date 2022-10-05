@@ -241,7 +241,7 @@ def iter_labels(layers, scaler, defaults):
         if not o.get('hidden'):
             display = dict(
                 box=scaler.latlng_bounds(o['bounds']),
-                background=fixColor(o['background']),
+                background=o.get('backgroundColour') or fixColor(o['background']),
                 color=deriveColor(o['characterColour']),
                 text=o['text'],
                 fontFamily=o['typeface'],
