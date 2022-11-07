@@ -415,11 +415,11 @@ def to_transform(data, source, name_for_layer, omit, prefix, defaults):
     return transform
 
 
-def remaining_layers(layers, only_layer):
+def remaining_layers(layers, only_layers):
     """Turn only_layer into the set of layers to omit instead."""
-    return () if only_layer is None else set(
+    return () if not only_layers else set(
         layer['name'] for layer in layers
-        if not layer['name'].startswith(only_layer)
+        if not layer['name'].startswith(tuple(only_layers))
     )
 
 
@@ -466,7 +466,7 @@ def main(argv):
 
     layergroup = parser.add_mutually_exclusive_group()
     layergroup.add_argument('--omit-layer', action='append')
-    layergroup.add_argument('--only-layer', help='Only include labels from this layer.')
+    layergroup.add_argument('--only-layer', action='append', help='Only include labels from this layer.')
 
     args = parser.parse_args(argv[1:])
 
