@@ -132,7 +132,7 @@ def json_str(obj):
 
 
 def resolve_layer(messy, name_for_layer):
-    name = '-'.join(messy.lstrip('-~').split(' · ')[0].strip().lower().split())
+    name = '-'.join(messy.lstrip('-~').split('/')[-1].split(' · ')[0].strip().lower().split())
     zoom = None
     if not name.strip('-0123456789'):
         name, zoom = '', name
