@@ -6,6 +6,7 @@ import argparse
 import base64
 import collections
 import contextlib
+import copy
 import hashlib
 import itertools
 import json
@@ -46,7 +47,7 @@ def deriveClass(url, defaults):
 
 
 def deriveHashIdent(obj):
-    if obj['classFor'] == 'http://www.w3.org/ns/org#OrganisationalUnit':
+    if obj.get('classFor') == 'http://www.w3.org/ns/org#OrganisationalUnit':
         raw = obj['note']['org_unit_id']
     else:
         raw = str(obj['n']) + deriveIdent(obj['path'])
@@ -82,18 +83,13 @@ def deriveQcon(path):
     return ': '.join(p.strip() for p in parts[off:])
 
 
-def deriveAcon(obj):
-    if 'parent' not in obj:
+def deriveAcon(obj, parent):
+    if parent is None:
         return ''
-    if obj['classFor'] == 'http://www.w3.org/ns/org#OrganisationalUnit':
+    if obj.get('classFor') == 'http://www.w3.org/ns/org#OrganisationalUnit':
         return 'orgunit-{:d}'.format(int(obj['note']['org_unit_id']))
-    parent = obj['parent']
-    while True:
-        anchor = parent.get('anchorName')
-        if anchor != 'Management':
-            break
-        parent = parent['parent']
-    local = obj['note'].get('fullName') or ' '.join(obj['text'].split())
+    anchor = parent.get('anchorName')
+    local = obj.get('fullName') or obj['note'].get('fullName') or obj.get('contents') or ' '.join(obj['text'].split())
     if anchor:
         return ': '.join([anchor, local])
     return local
@@ -173,6 +169,7 @@ def map_labels(labels, parent, counter, defaults):
             uid=label['uID'],
             n=next(counter),
             text=deriveText(label['name'].pop('contents')),
+            fullName=label.get('fullName'),
             anchorName=note.pop('anchorName', parent.get('anchorName', '')),
             classFor=deriveClass(note.pop('class', parent.get('class', defaults['class'])), defaults),
             note=note,
@@ -187,7 +184,10 @@ def make_lens_details(stack):
         # need to make some assumptions about layer name format in order to extract lensdetail details
         if not re.search(r"[a-zA-Z0-9]*@(?:[0-9]|[0-9]\-[0-9])$", o['layer']):
             raise ValueError("invalid layer name for generating forLensDetail")
-        layername, zoom = o['layer'].split('@')
+        # TODO: Do something useful with the parent detail level info
+        # detail levels now come out as parent@1/child@1
+        # for now, just take the rightmost detail level name as layername
+        layername, zoom = o['layer'].split('/')[-1].split('@')
         layers_and_zooms[layername].add(zoom)
 
     lens_details = dict()
@@ -195,6 +195,8 @@ def make_lens_details(stack):
         for i, zoom in enumerate(sorted(layers_and_zooms[layer])):
             layername_again = '{}@{}'.format(layer, zoom)
             detail_level_name = 'vm:_detail_{}_{}'.format(layer, i + 1)
+            # TODO: This needs to be keyed on the same thing as the lensDetail row in build_lens_details
+            # Ideally we would just grab ofLens from the export, but we can't always assume it exists.
             lens_details[layername_again] = detail_level_name
 
     return lens_details
@@ -207,12 +209,68 @@ def noop(*args, **kwargs):
 def build_lens_details(defaults, stack):
     if not defaults['lens_detail']:
         return noop
+    # TODO: separate version of make_lens_details for new format export would remove some of
+    # the horribleness here
     details = make_lens_details(stack)
 
     def apply_to_row(row, o):
-        row['lensDetail'] = details[o['layer']]
+        # TODO: Need common (and much better) logic for getting this detail level name
+        row['lensDetail'] = details[o['layer'].split('/')[-1]]
 
     return apply_to_row
+
+
+def _recursive_labels(semantics, scaler, dlevel_props, parent=None):
+    for semantic in semantics:
+        if parent:
+            semantic['parent'] = parent
+        o = semantic['name']
+        o['note'] = deriveNote(o.get('note', ''))
+        ident_data = dict(
+            n='',
+            path=semantic['path']
+        )
+        row = dict(
+            ident=deriveHashIdent(ident_data),
+            qcontents=deriveAcon(o, parent) or o['contents'],
+            # layer=o['layer'],
+            area=deriveLocation(scaler, semantic['visibleBounds']),
+            # TODO: dataLocation/data collection lines in new world
+            dataLocation=deriveLocation(scaler, semantic.get('dataCollections')),
+            type=semantic.get('class'),
+        )
+        if parent:
+            pofp = parent.get('parent', {'name': None})
+            row['pqcontents'] = deriveAcon(parent['name'], pofp['name'])
+        if not o.get('hidden'):
+            display = dict(
+                box=scaler.latlng_bounds(o['bounds']),
+                background=o.get('backgroundColour', '#fff'),
+                color=deriveColor(o['characterColour']),
+                text=o['contents'],
+                fontFamily=o['typeface'],
+                fontSize=scaler.distance(o['fontSize']),
+            )
+            row['display'] = json_str(display)
+        row['geoPoint'] = json_str(scaler.latlng(o['centrePoint']))
+        row.update(dlevel_props)
+        yield row
+        if 'children' in semantic:
+            for rlabel in _recursive_labels(semantic['children'], scaler, dlevel_props, parent=semantic):
+                yield rlabel
+
+
+def iter_labels_new(lenses, scaler, defaults):
+    # We're going to modify lenses as we walk through it, so make a copy to avoid hacking the original
+    copylens = copy.deepcopy(lenses)
+    for lens in copylens:
+        for dlevel in lens['lensContent']['detailLevels']:
+            dlevel_props = dict(
+                layer=dlevel['ofLens'],
+                lensDetail='vm:_detail_{}_{}'.format(_flatten(dlevel['ofLens']), dlevel['detailLevelNumber'])
+            )
+            for row in _recursive_labels(dlevel['semanticContents'], scaler, dlevel_props):
+                yield row
 
 
 def iter_labels(layers, scaler, defaults):
@@ -229,9 +287,9 @@ def iter_labels(layers, scaler, defaults):
             continue
         row = dict(
             ident=deriveHashIdent(o),
-            qcontents=deriveAcon(o),
+            qcontents=deriveAcon(o, o['parent']),
             layer=o['layer'],
-            pqcontents=deriveAcon(o['parent']),
+            pqcontents=deriveAcon(o, o['parent']),
             area=deriveLocation(scaler, o['area'] or o['visibleBounds']),
             dataLocation=deriveLocation(scaler, o['dataLocation']),
             type=o['classFor'],
@@ -357,10 +415,82 @@ class Scaler:
         ]
 
 
+def _flatten(string):
+    return string.lower().replace(' ', '-')
+
+
+def _lens_transform(data, source, defaults):
+    # the idea here is to generate lenses and detail levels automatically to save some pain in the defs.ttl files, which
+    # should at most just need to care about defining maps/views with matching lens names.
+    # if --source is passed, additionally generate maps and project-level settings
+    triples = []
+    if data.get('project') and source:
+        # Just use the first lens in array for a default map
+        default_map_iri = 'vm:_map_{}'.format(_flatten(data['lenses'][0]['name']))
+        triples += [
+            (data['project'], 'rdf:type', 'vm:Project'),
+            (data['project'], 'vm:floatingui', 'on'),
+            (data['project'], 'vm:defaultView', default_map_iri),
+        ]
+    for lens in data['lenses']:
+        # I'm assuming somebody is going to put a space into a lens name at some point, so need to sanitise
+        # really we should just ban user input
+        fname = _flatten(lens['name'])
+        lens_iri = 'vm:_lens_{}'.format(fname)
+        lens_triples = [
+            (lens_iri, 'rdf:type', 'vm:Lens'),
+            (lens_iri, 'vm:name', lens['name']),
+            (lens_iri, 'vm:extent', '[-256,0,0,256]'),
+        ]
+        if lens['lensContent'].get('parentName'):
+            plens_iri = 'vm:_lens_{}'.format(_flatten(lens['lensContent']['parentName']))
+            lens_triples.append(
+                (lens_iri, 'vm:parentLens', plens_iri)
+            )
+        # TODO: How are we generating the objects lenses get attached to? We need to do this in order
+        # for the lenses to show up in the final map on the platform. For now just make some maps if
+        # source flag is passed.
+        if source:
+            map_iri = 'vm:_map_{}'.format(fname)
+            lens_triples += [
+                (map_iri, 'rdf:type', 'vm:Map'),
+                (map_iri, 'vm:name', lens['name'] + ' Map'),
+                (map_iri, 'vm:onLens', lens_iri),
+            ]
+        triples += lens_triples
+        for dl in lens['lensContent']['detailLevels']:
+            dl_num = dl['detailLevelNumber']
+            tiles_path = 'https://opatlas-live.s3.amazonaws.com/{}/{}/tiles/{}/{}#background:{}'.format(
+                defaults['s3_project'],
+                data['date'],
+                '{}-{}'.format(_flatten(dl['ofLens']), dl_num),
+                '{{z}}-{{x}}-{{y}}.png',
+                # TODO: proper handling of transparent backgrounds, checking for transparency prop
+                # won't be enough
+                'transparent' if lens['lensContent'].get('transparency') else '#fff'
+            )
+            dl_iri = 'vm:_detail_{}_{}'.format(_flatten(dl['ofLens']), dl_num)
+            dl_triples = [
+                (dl_iri, 'rdf:type', 'vm:LensDetail'),
+                (dl_iri, 'vm:zoomRange', '0-6'),
+                (dl_iri, 'vm:usesMapTiles', tiles_path),
+                (lens_iri, 'vm:detail{}'.format(dl_num), dl_iri),
+            ]
+            triples += dl_triples
+    # return a transform with a single dummy row in it so we return the hardcoded triples once when the transform is run
+    return {
+        'data': [('dummy_row',)],
+        'triples': triples
+    }
+
+
 def to_transform(data, source, name_for_layer, omit, prefix, defaults):
     scaler = Scaler.from_artboard(data['artboard'])
-    layers = map_layers(data['layers'], name_for_layer, omit)
-    rows = list(iter_labels(layers, scaler, defaults))
+    if defaults['new']:
+        rows = list(iter_labels_new(data['lenses'], scaler, defaults))
+    else:
+        layers = map_layers(data['layers'], name_for_layer, omit)
+        rows = list(iter_labels(layers, scaler, defaults))
     # TODO: merge labels across views
     transform = {
         'data': rows,
@@ -412,6 +542,9 @@ def to_transform(data, source, name_for_layer, omit, prefix, defaults):
             ('{maybe_for}', 'vm:withGeoPath', '{row[dataLocation].as_text}'),
         ])
 
+    if defaults['defs']:
+        transform = [_lens_transform(data, source, defaults), transform]
+
     return transform
 
 
@@ -439,6 +572,12 @@ def main(argv):
     parser.add_argument('--output', metavar='PATH')
     parser.add_argument('--individual-default-class', default='owl:Thing')
     parser.add_argument('--individual-prefix', default='vm:_')
+    parser.add_argument(
+        '-n', '--new', action='store_true',
+        help='Experimental parsing of new world labels export JSON.')
+    parser.add_argument(
+        '--s3-project',
+        help='Name of project directory in S3 where the map tiles are located.')
     parser.add_argument(
         '-s', '--source', action='store_true',
         help='Use labels json as source data for model, e.g. creating Activity objects from Activity labels.')
@@ -473,8 +612,14 @@ def main(argv):
     with open(args.input, encoding=args.encoding) as f:
         data = json.load(f)
 
-    omit_layers = args.omit_layer or remaining_layers(
-        data['layers'], args.only_layer)
+    # need a better way of distinguishing what is a new world
+    new = args.new or 'lenses' in data
+
+    if not new:
+        omit_layers = args.omit_layer or remaining_layers(
+            data['layers'], args.only_layer)
+    else:
+        omit_layers = []
 
     with build_tracker(args) as tracking_fn:
         out_data = pprint.pformat(to_transform(
@@ -485,6 +630,10 @@ def main(argv):
                 'up': args.up_predicate,
                 'lens_detail': args.lens_detail,
                 'tracking': tracking_fn,
+                'new': new,
+                # awkward!
+                'defs': args.new,
+                's3_project': args.s3_project,
             },
         ))
 
