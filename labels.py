@@ -289,7 +289,8 @@ def iter_labels(layers, scaler, defaults):
             ident=deriveHashIdent(o),
             qcontents=deriveAcon(o, o['parent']),
             layer=o['layer'],
-            pqcontents=deriveAcon(o, o['parent']),
+            # will return emptystring if parent of parent is None
+            pqcontents=deriveAcon(o['parent'], o['parent'].get('parent')),
             area=deriveLocation(scaler, o['area'] or o['visibleBounds']),
             dataLocation=deriveLocation(scaler, o['dataLocation']),
             type=o['classFor'],
