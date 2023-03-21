@@ -163,7 +163,7 @@ def map_labels(labels, parent, counter, defaults):
             layer=parent['layer'],
             parent=parent,
             area=label.get('area'),
-            dataLocation=label.get('dataCollections', {}).values(),
+            dataCollectionValues=label.get('dataCollections', {}).values(),
             visibleBounds=label.get('visibleBounds'),
             path=label['path'],
             uid=label['uID'],
@@ -233,10 +233,8 @@ def _recursive_labels(semantics, scaler, dlevel_props, parent=None):
         row = dict(
             ident=deriveHashIdent(ident_data),
             qcontents=deriveAcon(o, parent) or o['contents'],
-            # layer=o['layer'],
             area=deriveLocation(scaler, semantic['visibleBounds']),
-            # TODO: dataLocation/data collection lines in new world
-            dataLocation=deriveLocation(scaler, semantic.get('dataCollections')),
+            dataLocation=deriveLocation(scaler, semantic.get('dataCollections', {}).values()),
             type=semantic.get('class'),
         )
         if parent:
@@ -292,7 +290,7 @@ def iter_labels(layers, scaler, defaults):
             # will return emptystring if parent of parent is None
             pqcontents=deriveAcon(o['parent'], o['parent'].get('parent')),
             area=deriveLocation(scaler, o['area'] or o['visibleBounds']),
-            dataLocation=deriveLocation(scaler, o['dataLocation']),
+            dataLocation=deriveLocation(scaler, o['dataCollectionValues']),
             type=o['classFor'],
         )
         if unparentable(o):
