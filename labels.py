@@ -266,7 +266,7 @@ def iter_labels_new(lenses, scaler, defaults):
     for lens in copylens:
         for dlevel in lens['lensContent']['detailLevels']:
             dlevel_props = dict(
-                layer=dlevel['ofLens'],
+                layer='{}@{}'.format(dlevel['ofLens'], dlevel['detailLevelNumber']),
                 lensDetail='vm:_detail_{}_{}'.format(_flatten(dlevel['ofLens']), dlevel['detailLevelNumber'])
             )
             for row in _recursive_labels(dlevel['semanticContents'], scaler, dlevel_props):
