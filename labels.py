@@ -47,10 +47,9 @@ def deriveClass(url, defaults):
 
 
 def deriveHashIdent(obj):
-    if obj.get('classFor') == 'http://www.w3.org/ns/org#OrganisationalUnit':
-        raw = obj['note']['org_unit_id']
-    else:
-        raw = str(obj['n']) + deriveIdent(obj['path'])
+    raw = str(obj['n']) + deriveIdent(obj['path'])
+    if obj.get('orgId'):
+        raw = raw + " " + obj.get('orgId')
     hash_prefix = hashlib.sha256(raw.encode('utf-8')).digest()[:6]
     return base64.urlsafe_b64encode(hash_prefix).decode('ascii')
 
@@ -83,13 +82,13 @@ def deriveQcon(path):
     return ': '.join(p.strip() for p in parts[off:])
 
 
-def deriveAcon(obj, parent):
+def deriveAcon(obj, parent, semantic):
     if parent is None:
         return ''
-    if obj.get('classFor') == 'http://www.w3.org/ns/org#OrganisationalUnit':
+    if obj.get('note').get('class') == 'http://www.w3.org/ns/org#OrganisationalUnit':
         return 'orgunit-{:d}'.format(int(obj['note']['org_unit_id']))
     anchor = parent.get('anchorName')
-    local = obj.get('fullName') or obj['note'].get('fullName') or ' '.join(obj['text'].split())
+    local = (obj.get('fullName') if semantic is None else semantic.get('fullName')) or obj['note'].get('fullName') or ' '.join(obj['text'].split())
     if anchor:
         return ': '.join([anchor, local])
     return local
@@ -221,6 +220,7 @@ def build_lens_details(defaults, stack):
 
 
 def _recursive_labels(semantics, scaler, dlevel_props, parent, defaults):
+    counter = itertools.count()
     for semantic in semantics:
         o = semantic['name']
         if parent is not None:
@@ -231,20 +231,21 @@ def _recursive_labels(semantics, scaler, dlevel_props, parent, defaults):
             parent = {'name': {}}
         o['note'] = deriveNote(o.get('note', ''))
         ident_data = dict(
-            n='',
+            n=next(counter),
+            orgId=o['note'].get('org_unit_id') or None,
             path=semantic['path']
         )
         o['text'] = deriveText(o['contents'])
         o['anchorName'] = semantic.get('anchorName', o['note'].pop('anchorName', parent['name'].get('anchorName', '')))
         row = dict(
             ident=deriveHashIdent(ident_data),
-            qcontents=deriveAcon(o, parent['name']) or o['text'],
-            area=deriveLocation(scaler, semantic['visibleBounds']),
+            qcontents=deriveAcon(o, parent['name'], semantic) or o['text'],
+            area=deriveLocation(scaler, semantic.get('area', semantic['visibleBounds'])),
             dataLocation=deriveLocation(scaler, semantic.get('dataCollections', {}).values()),
             type=deriveClass(o['note'].pop('class', parent.get('class', defaults['class'])), defaults),
         )
         pofp = parent.get('parent', {'name': None})
-        row['pqcontents'] = deriveAcon(parent['name'], pofp['name'])
+        row['pqcontents'] = deriveAcon(parent['name'], pofp['name'], pofp)
         if not o.get('hidden'):
             display = dict(
                 box=scaler.latlng_bounds(o['bounds']),
@@ -290,10 +291,10 @@ def iter_labels(layers, scaler, defaults):
             continue
         row = dict(
             ident=deriveHashIdent(o),
-            qcontents=deriveAcon(o, o['parent']),
+            qcontents=deriveAcon(o, o['parent'], None),
             layer=o['layer'],
             # will return emptystring if parent of parent is None
-            pqcontents=deriveAcon(o['parent'], o['parent'].get('parent')),
+            pqcontents=deriveAcon(o['parent'], o['parent'].get('parent'), None),
             area=deriveLocation(scaler, o['area'] or o['visibleBounds']),
             dataLocation=deriveLocation(scaler, o['dataCollectionValues']),
             type=o['classFor'],
