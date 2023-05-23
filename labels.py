@@ -86,7 +86,7 @@ def deriveAcon(obj, parent, semantic):
     if parent is None:
         return ''
     if obj.get('note').get('class') == 'http://www.w3.org/ns/org#OrganisationalUnit':
-        return 'orgunit-{:d}'.format(int(obj['note']['org_unit_id']))
+        return 'orgunit-{}'.format(obj['note']['org_unit_id'])
     anchor = parent.get('anchorName')
     local = (obj.get('fullName') if semantic is None else semantic.get('fullName')) or obj['note'].get('fullName') or ' '.join(obj['text'].split())
     if anchor:
