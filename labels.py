@@ -580,7 +580,7 @@ def main(argv):
     parser.add_argument('--individual-prefix', default='vm:_')
     parser.add_argument(
         '--output-lenses', action='store_true',
-        help='Experimental parsing of new world labels export JSON.')
+        help='Outputting an additional transform to derive the lens + detail level properties from the labels data.')
     parser.add_argument(
         '--s3-project',
         help='Name of project directory in S3 where the map tiles are located.')
