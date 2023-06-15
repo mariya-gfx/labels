@@ -47,10 +47,9 @@ def deriveClass(url, defaults):
 
 
 def deriveHashIdent(obj):
-    if obj.get('classFor') == 'http://www.w3.org/ns/org#OrganisationalUnit':
-        raw = obj['note']['org_unit_id']
-    else:
-        raw = str(obj['n']) + deriveIdent(obj['path'])
+    raw = str(obj['n']) + deriveIdent(obj['path'])
+    if obj.get('orgId'):
+        raw = raw + " " + obj.get('orgId')
     hash_prefix = hashlib.sha256(raw.encode('utf-8')).digest()[:6]
     return base64.urlsafe_b64encode(hash_prefix).decode('ascii')
 
@@ -83,13 +82,13 @@ def deriveQcon(path):
     return ': '.join(p.strip() for p in parts[off:])
 
 
-def deriveAcon(obj, parent):
+def deriveAcon(obj, parent, semantic):
     if parent is None:
         return ''
-    if obj.get('classFor') == 'http://www.w3.org/ns/org#OrganisationalUnit':
-        return 'orgunit-{:d}'.format(int(obj['note']['org_unit_id']))
+    if obj.get('note').get('class') == 'http://www.w3.org/ns/org#OrganisationalUnit':
+        return 'orgunit-{}'.format(obj['note']['org_unit_id'])
     anchor = parent.get('anchorName')
-    local = obj.get('fullName') or obj['note'].get('fullName') or obj.get('contents') or ' '.join(obj['text'].split())
+    local = (obj.get('fullName') if semantic is None else semantic.get('fullName')) or obj['note'].get('fullName') or ' '.join(obj['text'].split())
     if anchor:
         return ': '.join([anchor, local])
     return local
@@ -220,42 +219,50 @@ def build_lens_details(defaults, stack):
     return apply_to_row
 
 
-def _recursive_labels(semantics, scaler, dlevel_props, parent=None):
+def _recursive_labels(semantics, scaler, dlevel_props, parent, defaults):
+    counter = itertools.count()
     for semantic in semantics:
-        if parent:
-            semantic['parent'] = parent
         o = semantic['name']
+        if parent is not None:
+            semantic['parent'] = parent
+            o['depth'] = parent['name'].get('depth', 0) + 1
+        else:
+            o['depth'] = 1
+            parent = {'name': {}}
         o['note'] = deriveNote(o.get('note', ''))
         ident_data = dict(
-            n='',
+            n=next(counter),
+            orgId=o['note'].get('org_unit_id') or None,
             path=semantic['path']
         )
+        o['text'] = deriveText(o['contents'])
+        o['anchorName'] = semantic.get('anchorName', o['note'].pop('anchorName', parent['name'].get('anchorName', '')))
         row = dict(
             ident=deriveHashIdent(ident_data),
-            qcontents=deriveAcon(o, parent) or o['contents'],
-            area=deriveLocation(scaler, semantic['visibleBounds']),
+            qcontents=deriveAcon(o, parent['name'], semantic) or o['text'],
+            area=deriveLocation(scaler, semantic.get('area', semantic['visibleBounds'])),
             dataLocation=deriveLocation(scaler, semantic.get('dataCollections', {}).values()),
-            type=semantic.get('class'),
+            type=deriveClass(o['note'].pop('class', parent.get('class', defaults['class'])), defaults),
         )
-        if parent:
-            pofp = parent.get('parent', {'name': None})
-            row['pqcontents'] = deriveAcon(parent['name'], pofp['name'])
+        pofp = parent.get('parent', {'name': None})
+        row['pqcontents'] = deriveAcon(parent['name'], pofp['name'], pofp)
         if not o.get('hidden'):
             display = dict(
                 box=scaler.latlng_bounds(o['bounds']),
                 background=o.get('backgroundColour', '#fff'),
                 color=deriveColor(o['characterColour']),
-                text=o['contents'],
+                text=o['text'],
                 fontFamily=o['typeface'],
                 fontSize=scaler.distance(o['fontSize']),
             )
             row['display'] = json_str(display)
         row['geoPoint'] = json_str(scaler.latlng(o['centrePoint']))
         row.update(dlevel_props)
+        o.update(dlevel_props)
+        defaults['tracking'](o, row)
         yield row
         if 'children' in semantic:
-            for rlabel in _recursive_labels(semantic['children'], scaler, dlevel_props, parent=semantic):
-                yield rlabel
+            yield from _recursive_labels(semantic['children'], scaler, dlevel_props, semantic, defaults)
 
 
 def iter_labels_new(lenses, scaler, defaults):
@@ -267,8 +274,7 @@ def iter_labels_new(lenses, scaler, defaults):
                 layer='{}@{}'.format(dlevel['ofLens'], dlevel['detailLevelNumber']),
                 lensDetail='vm:_detail_{}_{}'.format(_flatten(dlevel['ofLens']), dlevel['detailLevelNumber'])
             )
-            for row in _recursive_labels(dlevel['semanticContents'], scaler, dlevel_props):
-                yield row
+            yield from _recursive_labels(dlevel['semanticContents'], scaler, dlevel_props, None, defaults)
 
 
 def iter_labels(layers, scaler, defaults):
@@ -285,10 +291,10 @@ def iter_labels(layers, scaler, defaults):
             continue
         row = dict(
             ident=deriveHashIdent(o),
-            qcontents=deriveAcon(o, o['parent']),
+            qcontents=deriveAcon(o, o['parent'], None),
             layer=o['layer'],
             # will return emptystring if parent of parent is None
-            pqcontents=deriveAcon(o['parent'], o['parent'].get('parent')),
+            pqcontents=deriveAcon(o['parent'], o['parent'].get('parent'), None),
             area=deriveLocation(scaler, o['area'] or o['visibleBounds']),
             dataLocation=deriveLocation(scaler, o['dataCollectionValues']),
             type=o['classFor'],
@@ -478,14 +484,15 @@ def _lens_transform(data, source, defaults):
             triples += dl_triples
     # return a transform with a single dummy row in it so we return the hardcoded triples once when the transform is run
     return {
-        'data': [('dummy_row',)],
+        'data': [()],
         'triples': triples
     }
 
 
 def to_transform(data, source, name_for_layer, omit, prefix, defaults):
     scaler = Scaler.from_artboard(data['artboard'])
-    if defaults['new']:
+    is_new_format = 'lenses' in data
+    if is_new_format:
         rows = list(iter_labels_new(data['lenses'], scaler, defaults))
     else:
         layers = map_layers(data['layers'], name_for_layer, omit)
@@ -541,7 +548,7 @@ def to_transform(data, source, name_for_layer, omit, prefix, defaults):
             ('{maybe_for}', 'vm:withGeoPath', '{row[dataLocation].as_text}'),
         ])
 
-    if defaults['defs']:
+    if defaults['output_lenses'] and is_new_format:
         transform = [_lens_transform(data, source, defaults), transform]
 
     return transform
@@ -572,8 +579,8 @@ def main(argv):
     parser.add_argument('--individual-default-class', default='owl:Thing')
     parser.add_argument('--individual-prefix', default='vm:_')
     parser.add_argument(
-        '-n', '--new', action='store_true',
-        help='Experimental parsing of new world labels export JSON.')
+        '--output-lenses', action='store_true',
+        help='Outputting an additional transform to derive the lens + detail level properties from the labels data.')
     parser.add_argument(
         '--s3-project',
         help='Name of project directory in S3 where the map tiles are located.')
@@ -611,14 +618,8 @@ def main(argv):
     with open(args.input, encoding=args.encoding) as f:
         data = json.load(f)
 
-    # need a better way of distinguishing what is a new world
-    new = args.new or 'lenses' in data
-
-    if not new:
-        omit_layers = args.omit_layer or remaining_layers(
-            data['layers'], args.only_layer)
-    else:
-        omit_layers = []
+    omit_layers = [] if 'lenses' in data else (
+        args.omit_layer or remaining_layers(data['layers'], args.only_layer))
 
     with build_tracker(args) as tracking_fn:
         out_data = pprint.pformat(to_transform(
@@ -629,10 +630,8 @@ def main(argv):
                 'up': args.up_predicate,
                 'lens_detail': args.lens_detail,
                 'tracking': tracking_fn,
-                'new': new,
-                # awkward!
-                'defs': args.new,
                 's3_project': args.s3_project,
+                'output_lenses': args.output_lenses,
             },
         ))
 
