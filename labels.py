@@ -255,6 +255,9 @@ def _recursive_labels(semantics, scaler, dlevel_props, parent, defaults):
                 fontFamily=o['typeface'],
                 fontSize=scaler.distance(o['fontSize']),
             )
+             # transparent background hack
+            if display['background'] == "" and o.get('note', dict()).get('background'):
+                display['background'] = o['note']['background']
             row['display'] = json_str(display)
         row['geoPoint'] = json_str(scaler.latlng(o['centrePoint']))
         row.update(dlevel_props)
