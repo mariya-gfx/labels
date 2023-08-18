@@ -255,7 +255,7 @@ def _recursive_labels(semantics, scaler, dlevel_props, parent, defaults):
                 fontFamily=o['typeface'],
                 fontSize=scaler.distance(o['fontSize']),
             )
-             # transparent background hack
+            # transparent background hack
             if display['background'] == "" and o.get('note', dict()).get('background'):
                 display['background'] = o['note']['background']
             row['display'] = json_str(display)
@@ -405,6 +405,39 @@ class Scaler:
         if o.get('areaType') == 'pathPoints':
             return [self.latlng(segment['anchor']) for segment in o['points']]
         raise NotImplementedError(o)
+
+    def svg_path(self, o):
+        if o.get('areaType') == 'pathPoints':
+            points = []
+            o_len = len(o['points'])
+            base_anchor = self.latlng(o['points'][0]['anchor'])
+            for index, segment in enumerate(o['points']):
+                current_anchor = self.latlng(segment['anchor'])
+                current = self.calculate_relative(current_anchor, base_anchor)
+                leftDirection = self.calculate_relative(self.latlng(segment.get('leftDirection', segment['anchor'])), base_anchor)
+                base_anchor = current_anchor
+                rightDirection = self.calculate_relative(self.latlng(segment.get('rightDirection', segment['anchor'])), base_anchor)
+                if index == 0:
+                    self.append_coords(points, [current_anchor, rightDirection])
+                elif index == o_len - 1:
+                    self.append_coords(points, [leftDirection, current])
+                else:
+                    self.append_coords(points, [leftDirection, current, rightDirection])
+            points[0] = 'M' + points[0]
+            points[2] = 'c' + points[2]
+            path = ','.join(points)
+            return path
+
+    def calculate_relative(self, coord, base):
+        x1, y1 = coord
+        x2, y2 = base
+        return [x1 - x2, y1 - y2]
+
+    def append_coords(self, list, coords):
+        for c in coords:
+            # invert the x value
+            x, y = [-c[0], c[1]]
+            list += [f'{x+0:.2g}', f'{y+0:.2g}']
 
     def distance(self, n):
         return self._to(n)
