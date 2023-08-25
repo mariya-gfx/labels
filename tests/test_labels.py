@@ -1,3 +1,6 @@
+# Copyright 2021-2023 Visual Meaning Ltd
+# This is free software licensed as GPL-3.0-or-later - see COPYING for terms.
+
 """Unittests for the labels.py"""
 
 import unittest
