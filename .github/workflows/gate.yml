@@ -1,0 +1,27 @@
+---
+name: Gate
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  check:
+    name: Basic gating validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: "3.10"
+      - name: Install
+        run: |
+          pip3 install ruff==0.0.286
+      - name: Check
+        run: |
+          ruff *.py --select W,C9,E,F --ignore E501
+          python3 -m unittest discover
